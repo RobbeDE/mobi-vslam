@@ -1,71 +1,19 @@
-from airo_camera_toolkit.cameras.zed.zed import Zed, ZedSpatialMap
+from airo_camera_toolkit.cameras.zed.zed import Zed
 import cv2
 import numpy as np
-import cv2
 import rerun as rr
+from utils import points_camera_to_world, pose_camera_to_world, save_spatial_map_to_npz, world_to_grid
 
-X_W_C = np.array(
-    [
-        [1, 0, 0, 0],
-        [0, 0, 1, 0],
-        [0, -1, 0, 0],
-        [0, 0, 0, 1]
-
-    ],
-    dtype=float,
-)
 
 # --- CONFIGURATION ---
 MAP_SIZE_METERS = 50.0      # The map will cover 50x50 meters
 MAP_SIZE_PIXELS = 600       # The map will be rendered at 600x600 pixels
 RESOLUTION = MAP_SIZE_METERS / MAP_SIZE_PIXELS # meters per pixel
 CAMERA_HEIGHT = 0.45      # The height of the ZED camera in meters
-OUTPUT_AREA_FILE = "test9.area"
-OUTPUT_POINTCLOUD_FILE = "spatial_map9.npz"
+RERUN = False
+OUTPUT_AREA_FILE = "test10.area"
+OUTPUT_POINTCLOUD_FILE = "spatial_map10.npz"
 
-def save_spatial_map_to_npz(spatial_map: ZedSpatialMap, filepath: str):
-    data_dict = {}
-    
-    # Save the chunks updated list
-    data_dict["chunks_updated"] = np.array(spatial_map.chunks_updated)
-    
-    # Save each chunk's points and colors dynamically
-    for i, chunk in enumerate(spatial_map.chunks):
-        data_dict[f"points_{i}"] = chunk.points
-        if chunk.colors is not None:
-            data_dict[f"colors_{i}"] = chunk.colors
-            
-    np.savez_compressed(filepath, **data_dict)
-    print(f"Saved spatial map arrays to {filepath}")
-
-def world_to_grid(x, y):
-    """
-    Converts 3D world coordinates (X, Y) to 2D image coordinates (col, row).
-    We map +Y to "Up" on the screen and +X to "Right".
-    """
-    # Center of the image is (0,0) in world coordinates
-    px = int((MAP_SIZE_PIXELS / 2) + (x / RESOLUTION))
-    # In OpenCV, row 0 is top. To make +Y go UP, we subtract from height/2
-    py = int((MAP_SIZE_PIXELS / 2) - (y / RESOLUTION))
-    return px, py
-
-def points_camera_to_world(points_camera: np.ndarray) -> np.ndarray:
-    """
-    Convert points from camera frame (X right, Y down, Z forward)
-    to World frame (X right, Y forward, Z up).
-    """
-    assert points_camera.shape[1] == 3 # check that input is Nx3
-
-    points_world = (X_W_C[:3, :3] @ points_camera.T).T  # Rotate points from camera frame to world frame
-
-    return points_world
-
-def pose_camera_to_world(pose_camera: np.ndarray) -> np.ndarray:
-    assert pose_camera.shape == (4, 4)
-
-    pose_world = X_W_C @ pose_camera
-
-    return pose_world
 
 def visualize_occupancy_grid(world_points, world_pose):
     # 1. Mark all cells as UNKNOWN by default (Gray background)
@@ -132,7 +80,7 @@ def visualize_occupancy_grid(world_points, world_pose):
     # Extract Robot Translation (X and Z)
     robot_x = world_pose[0, 3]
     robot_y = world_pose[1, 3]
-    r_px, r_py = world_to_grid(robot_x, robot_y)
+    r_px, r_py = world_to_grid(robot_x, robot_y, RESOLUTION, MAP_SIZE_PIXELS)
 
     # Calculate Heading (Assume the camera looks along the +Z or -Z axis)
     # We project a point 0.5 meters in front of the camera to draw a line
@@ -140,7 +88,7 @@ def visualize_occupancy_grid(world_points, world_pose):
     # We use +0.5 on Z here, adjust to -0.5 if the line points backward)
     forward_local = np.array([0, 0, 1.0, 1.0])
     forward_world = world_pose @ forward_local
-    f_px, f_py = world_to_grid(forward_world[0], forward_world[1])
+    f_px, f_py = world_to_grid(forward_world[0], forward_world[1], RESOLUTION, MAP_SIZE_PIXELS)
 
     # Draw Robot Center (Red Circle)
     cv2.circle(grid_img, (r_px, r_py), 6, (0, 0, 255), -1)
@@ -165,7 +113,6 @@ def main():
         depth_mode=Zed.InitParams.NEURAL_DEPTH_MODE,
         camera_tracking_params=tracking_params,
         camera_mapping_params=mapping_params,
-        # svo_filepath="svo_file.svo2"
         serial_number=31733653
     ) as zed:
         
@@ -178,20 +125,21 @@ def main():
         cv2.namedWindow("RGB Image", cv2.WINDOW_NORMAL)
         cv2.namedWindow("Occupancy Grid", cv2.WINDOW_NORMAL)
 
-        # rr.init("gert")
-        # rr.spawn(memory_limit="2GB")
+        if RERUN:
+            rr.init("gert")
+            rr.spawn(memory_limit="2GB")
 
-        # # 1. Setup World Coordinate System (Z-Up)
-        # rr.log("World", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
+            # 1. Setup World Coordinate System (Z-Up)
+            rr.log("World", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
 
-        # rr.log(
-        #     "World/Camera/Pinhole",
-        #     rr.Pinhole(
-        #         resolution=[1280, 720],  # Arbitrary resolution for visualization
-        #         focal_length=700,  # Arbitrary FOV for visualization
-        #     ),
-        #     static=True,
-        # )
+            rr.log(
+                "World/Camera/Pinhole",
+                rr.Pinhole(
+                    resolution=[1280, 720],  # Arbitrary resolution for visualization
+                    focal_length=700,  # Arbitrary FOV for visualization
+                ),
+                static=True,
+            )
 
         while True:
 
@@ -212,17 +160,14 @@ def main():
 
             visualize_occupancy_grid(world_points, world_pose)
 
-            # If enabled, log spatial map to rerun
-            full_pointcloud = spatial_map.full_pointcloud
-            # rr.log(
-            #     "World/spatial_map",
-            #     rr.Points3D(
-            #         positions=points_camera_to_world(full_pointcloud.points),
-            #         colors=full_pointcloud.colors,
-            #     ),
-            # )
-
-            # Visualize camera pose in Rerun
+            if RERUN:
+                rr.log(
+                    "World/spatial_map",
+                    rr.Points3D(
+                        positions=world_points,
+                        colors=spatial_map.full_pointcloud.colors,
+                    ),
+                )
 
             # Extract Rotation Matrix (3x3 top-left)
             translation_world = world_pose[:3, 3]
@@ -230,9 +175,10 @@ def main():
 
             print(f"Translation pose (world): {translation_world}")
 
-            # Log the transform.
-            # This moves "World/Camera" (and its child "Pinhole") to the new location.
-            # rr.log("World/Camera", rr.Transform3D(translation=translation_world, mat3x3=rotation_world))
+            if RERUN:
+                # Log the transform.
+                # This moves "World/Camera" (and its child "Pinhole") to the new location.
+                rr.log("World/Camera", rr.Transform3D(translation=translation_world, mat3x3=rotation_world))
 
             key = cv2.waitKey(10)
             if key == ord("s"):

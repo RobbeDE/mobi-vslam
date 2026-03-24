@@ -10,8 +10,8 @@ MAP_SIZE_METERS = 50.0      # The map will cover 50x50 meters
 MAP_SIZE_PIXELS = 600       # The map will be rendered at 600x600 pixels
 RESOLUTION = MAP_SIZE_METERS / MAP_SIZE_PIXELS # meters per pixel
 CAMERA_HEIGHT = 1.425       # The height of the ZED camera in meters
-OUTPUT_AREA_FILE = "test1.area"
-OUTPUT_POINTCLOUD_FILE = "spatial_map.npz"
+OUTPUT_AREA_FILE = "area_files/test5.area"
+OUTPUT_POINTCLOUD_FILE = "spatial_maps/edited_spatial_map5.npz"
 
 def load_spatial_map_from_npz(filepath: str) -> ZedSpatialMap:
     data = np.load(filepath)
