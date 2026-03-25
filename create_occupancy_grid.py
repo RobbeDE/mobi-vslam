@@ -5,13 +5,13 @@ from utils import *
 from constants import *
 
 # --- CONFIGURATION ---
-SPATIAL_MAP_NAME = "spatial_map5.npz"  # The .npz file containing the saved spatial map data
-OCCUPANCY_GRID_NAME = "occupancy_grid5.npz"  # The .npz file to save the occupancy grid data
+SPATIAL_MAP_NAME = "spatial_maps/spatial_map15.npz"  # The .npz file containing the saved spatial map data
+OCCUPANCY_GRID_NAME = "occupancy_grids/occupancy_grid15.npz"  # The .npz file to save the occupancy grid data
 
 
 def create_occupancy_grid(spatial_map: ZedSpatialMap) -> OccupancyGrid:
     # 1. Initialize a 1-Channel 2D array to 128 (Unknown)
-    grid_data = np.full((MAP_SIZE_CELLS, MAP_SIZE_CELLS), 128, dtype=np.uint8)
+    grid_data = np.full((MAP_SIZE_CELLS, MAP_SIZE_CELLS, 3), (128, 128, 128), dtype=np.uint8)
 
     points = points_camera_to_world(spatial_map.full_pointcloud.points)
 
@@ -49,8 +49,8 @@ def create_occupancy_grid(spatial_map: ZedSpatialMap) -> OccupancyGrid:
                 is_occupied = has_remaining_point
 
                 # 2. Populate data with target specification values
-                grid_data[is_free] = 255     # 255 = Free
-                grid_data[is_occupied] = 0  # 0 = Occupied
+                grid_data[is_free] = (255, 255, 255)  # 255 = Free
+                grid_data[is_occupied] = (0, 0, 0)     # 0 = Occupied
 
     return OccupancyGrid(MAP_SIZE_METERS, CELL_SIZE, grid_data)
 
