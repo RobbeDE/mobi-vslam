@@ -4,8 +4,8 @@ from constants import *
 from utils import *
 
 # --- CONFIGURATION ---
-AREA_FILE = "area_files/test15.area"
-OCCUPANCY_GRID_FILE = "occupancy_grids/occupancy_grid15.npz"
+AREA_FILE = "area_files/test13.area"
+OCCUPANCY_GRID_FILE = "occupancy_grids/occupancy_grid13.npz"
 
 
 if __name__ == "__main__":

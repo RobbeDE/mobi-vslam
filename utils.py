@@ -84,7 +84,7 @@ def world_to_occupancy_grid(points_world: np.ndarray):
         px_all = ((MAP_SIZE_CELLS / 2) + (points_world[:, 0] / CELL_SIZE)).astype(int)
         py_all = ((MAP_SIZE_CELLS / 2) - (points_world[:, 1] / CELL_SIZE)).astype(int)
 
-        px_all, py_all = world_to_grid(points_world[:, 0], points_world[:, 1], CELL_SIZE, MAP_SIZE_CELLS)
+        px_all, py_all = coordinate_world_to_grid(points_world[:, 0], points_world[:, 1], CELL_SIZE, MAP_SIZE_CELLS)
 
         # Filter out points that fall outside the 2D image boundaries
         valid_bounds = (px_all >= 0) & (px_all < MAP_SIZE_CELLS) & (py_all >= 0) & (py_all < MAP_SIZE_CELLS)
@@ -146,12 +146,16 @@ def draw_occupancy_grid(window_name: str, occupancy_grid: OccupancyGrid, pose_wo
     cv2.imshow(window_name, grid_img)
         
 
+def theta_xy(R: np.ndarray):
+    return np.arctan2(R[1, 0], R[0, 0])
+    
+
 def draw_robot_pose_on_grid(pose_world: np.ndarray, grid_img: np.ndarray, cell_size: float, map_size_cells: int) -> None:
     # --- RENDER THE ROBOT POSE ---
     # Extract Robot Translation (X and Z)
     robot_x = pose_world[0, 3]
     robot_y = pose_world[1, 3]
-    r_px, r_py = world_to_grid(robot_x, robot_y, cell_size, map_size_cells)
+    r_px, r_py = coordinate_world_to_grid(robot_x, robot_y, cell_size, map_size_cells)
 
     # Calculate Heading (Assume the camera looks along the +Z axis)
     # We project a point 0.5 meters in front of the camera to draw a line
@@ -159,7 +163,7 @@ def draw_robot_pose_on_grid(pose_world: np.ndarray, grid_img: np.ndarray, cell_s
     # We use +0.5 on Z here, adjust to -0.5 if the line points backward)
     forward_local = np.array([0, 0, 0.5, 1.0])
     forward_world = pose_world @ forward_local
-    f_px, f_py = world_to_grid(forward_world[0], forward_world[1], cell_size, map_size_cells)
+    f_px, f_py = coordinate_world_to_grid(forward_world[0], forward_world[1], cell_size, map_size_cells)
 
     # Draw Robot Center (Red Circle)
     cv2.circle(grid_img, (r_px, r_py), 4, (0, 0, 255), -1)
@@ -180,7 +184,22 @@ def pose_camera_to_world(pose_camera: np.ndarray) -> np.ndarray:
     pose_world = X_W_C @ pose_camera
     return pose_world
 
-def world_to_grid(x: float | np.ndarray, y: float | np.ndarray, cell_size: float, map_size_cells: int) -> tuple[float | np.ndarray, float | np.ndarray]:
+def pose_world_to_grid(pose_world: np.ndarray, grid: OccupancyGrid) -> tuple[int, int, float]:
+    """
+    Convert a 4x4 homogeneous transformation matrix representing the robot's pose in the world frame
+    to grid coordinates (cell_x, cell_y) and heading (theta).
+    """
+    robot_x = pose_world[0, 3]
+    robot_y = pose_world[1, 3]
+    cell_x, cell_y = coordinate_world_to_grid(robot_x, robot_y, grid.cell_size, grid.map_size_cells)
+    
+    # Extract rotation and compute heading
+    R = pose_world[:3, :3]
+    heading = theta_xy(R) + np.pi/2  # Adjust if needed based on how your robot's forward direction maps to the grid
+
+    return cell_x, cell_y, heading
+
+def coordinate_world_to_grid(x: float | np.ndarray, y: float | np.ndarray, cell_size: float, map_size_cells: int) -> tuple[float | np.ndarray, float | np.ndarray]:
     """
     Converts 3D world coordinates (X, Y) to 2D image coordinates (col, row).
 
