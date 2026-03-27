@@ -195,7 +195,7 @@ def pose_world_to_grid(pose_world: np.ndarray, grid: OccupancyGrid) -> tuple[int
     
     # Extract rotation and compute heading
     R = pose_world[:3, :3]
-    heading = theta_xy(R) + np.pi/2  # Adjust if needed based on how your robot's forward direction maps to the grid
+    heading = -(theta_xy(R) + np.pi/2) % (2 * np.pi)  # Adjust if needed based on how your robot's forward direction maps to the grid
 
     return cell_x, cell_y, heading
 
