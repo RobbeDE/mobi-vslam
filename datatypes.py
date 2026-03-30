@@ -20,20 +20,3 @@ class OccupancyGrid:
         distances = distance_transform_edt(free_spaces)
         risk_map = np.exp(-(distances ** 2) / (2 * sigma ** 2))
         return risk_map
-
-
-        
-        
-
-                
-
-class RiskMap:
-    def __init__(self, occupancy_grid: OccupancyGrid, static_sigma: float):
-        self.occupancy_grid = occupancy_grid
-        self.static_sigma = static_sigma
-        
-        # Precompute static risk via distance transform + Gaussian decay
-        binary = (self.occupancy_grid.grid < 1).astype(int)
-        distances = distance_transform_edt(binary)
-        self.static_risk_map = np.exp(-(distances ** 2) / (2 * static_sigma ** 2))
-        self.static_risk_map[self.occupancy_grid.grid >= 1] = 1.0

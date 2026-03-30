@@ -6,6 +6,16 @@ from datatypes import OccupancyGrid
 from constants import *
 from typing import Optional
 
+def R_2d(theta: float) -> np.ndarray:
+    """
+    Create a 2D rotation matrix for a given angle theta (in radians).
+    """
+    return np.array([
+        [np.cos(theta), -np.sin(theta)],
+        [np.sin(theta), np.cos(theta)]
+    ])
+
+# Camera coordinate frame (X right, Y down, Z forward) to World coordinate frame (X right, Y forward, Z up)
 X_W_C = np.array(
     [
         [1, 0, 0, 0],
@@ -16,6 +26,37 @@ X_W_C = np.array(
     ],
     dtype=float,
 )
+
+# Local robot coordinate frame (X forward, Y left, Z up) to World coordinate frame (X right, Y forward, Z up)
+def X_W_R(robot_pose_world: np.ndarray) -> np.ndarray:
+    R = R_2d(np.deg2rad(90)) @ robot_pose_world[:2, :2]
+    X_R_W = np.eye(3)
+    X_R_W[:2, :2] = R
+    X_R_W[:2, 2] = robot_pose_world[:2, 3]
+    return X_R_W
+    
+
+# Grid coordinate frame (X right, Y down) to World frame (X right, Y up) in meters
+def X_W_G(map_size_cells: int, cell_size: float) -> np.ndarray:
+    return np.array(
+        [
+            [1, 0, -int(map_size_cells/2) * cell_size],
+            [0, -1, int(map_size_cells/2) * cell_size],
+            [0, 0, 1]
+        ],
+        dtype=float,
+    )
+
+# World coordinate frame (X right, Y up) to Grid frame (X right, Y down) in cells
+def X_G_W(map_size_cells: int) -> np.ndarray:
+    return np.array(
+        [
+            [1, 0, int(map_size_cells/2)],
+            [0, -1, int(map_size_cells/2)],
+            [0, 0, 1]
+        ],
+        dtype=float,
+    )
 
 def save_spatial_map_to_npz(spatial_map: ZedSpatialMap, filepath: str):
     data_dict = {}
@@ -223,3 +264,14 @@ def coordinate_world_to_grid(x: float | np.ndarray, y: float | np.ndarray, cell_
         return int(cx), int(cy)
 
     return cx, cy
+
+if __name__ == "__main__":
+    robot_pose_world = np.array([
+        [0, -1, 0, 1],  # 90 degree rotation
+        [1, 0, 0, 2],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+    ], dtype=float)
+
+    print("Robot Pose in World Frame:\n", robot_pose_world)
+    print("Robot Pose in Grid Frame:\n", X_W_R(robot_pose_world))

@@ -42,12 +42,8 @@ class MobiNavigator:
             error_x = (goal_cell[0] - robot_cx) * grid.cell_size
             error_y = (goal_cell[1] - robot_cy) * grid.cell_size 
             distance = np.hypot(error_x, error_y)
-            angle_to_goal = np.arctan2(error_y, error_x) % (2 * np.pi)
-            if angle_to_goal > np.pi:
-                angle_to_goal -= 2 * np.pi
-            angle_error = (angle_to_goal - robot_heading) % (2 * np.pi)
-            if angle_error > np.pi:
-                angle_error -= 2 * np.pi
+            angle_to_goal = (np.arctan2(error_y, error_x) + np.pi) % (2 * np.pi) - np.pi  # Normalize to [-pi, pi]
+            angle_error = (angle_to_goal - robot_heading + np.pi) % (2 * np.pi) - np.pi  # Normalize to [-pi, pi]
 
             if distance < self.GOAL_TOLERANCE:
                 logger.info("Goal reached!")
