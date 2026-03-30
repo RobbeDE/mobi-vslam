@@ -6,6 +6,48 @@ from datatypes import OccupancyGrid
 from constants import *
 from typing import Optional
 
+# Camera coordinate frame (X right, Y down, Z forward) to World coordinate frame (X forward, Y left, Z up)
+X_C_W = np.array(
+    [
+        [0, -1, 0, 0],
+        [0, 0, -1, 0],
+        [1, 0, 0, 0],
+        [0, 0, 0, 1]
+
+    ],
+    dtype=float,
+)
+
+# Local robot coordinate frame (X forward, Y left, Z up) to World coordinate frame (X right, Y forward, Z up)
+def X_W_R_2d(robot_pose_world: np.ndarray) -> np.ndarray:
+    X_R_W = np.eye(3)
+    X_R_W[:2, :2] = robot_pose_world[:2, :2]
+    X_R_W[:2, 2] = robot_pose_world[:2, 3]
+    return X_R_W
+    
+
+# Grid coordinate frame (X right, Y down) to World frame (X right, Y up) in meters
+def X_W_G_2d(map_size_cells: int, cell_size: float) -> np.ndarray:
+    return np.array(
+        [
+            [1, 0, -int(map_size_cells/2) * cell_size],
+            [0, -1, -int(map_size_cells/2) * cell_size],
+            [0, 0, 1]
+        ],
+        dtype=float,
+    )
+
+# World coordinate frame (X right, Y up) to Grid frame (X right, Y down) in cells
+def X_G_W_2d(map_size_cells: int) -> np.ndarray:
+    return np.array(
+        [
+            [0, -1, int(map_size_cells/2)],
+            [-1, 0, int(map_size_cells/2)],
+            [0, 0, 1]
+        ],
+        dtype=float,
+    )
+
 def R_2d(theta: float) -> np.ndarray:
     """
     Create a 2D rotation matrix for a given angle theta (in radians).
@@ -15,48 +57,49 @@ def R_2d(theta: float) -> np.ndarray:
         [np.sin(theta), np.cos(theta)]
     ])
 
-# Camera coordinate frame (X right, Y down, Z forward) to World coordinate frame (X right, Y forward, Z up)
-X_W_C = np.array(
-    [
-        [1, 0, 0, 0],
-        [0, 0, 1, 0],
-        [0, -1, 0, 0],
-        [0, 0, 0, 1]
+def points_camera_to_world(points_camera: np.ndarray) -> np.ndarray:
+    """
+    Convert points from camera frame (X right, Y down, Z forward)
+    to World frame (X forward, Y left, Z up).
+    """
 
-    ],
-    dtype=float,
-)
+    return (np.linalg.inv(X_C_W[:3, :3]) @ points_camera.T).T # Transposes are necessary for correct shapes in matrix multiplication
 
-# Local robot coordinate frame (X forward, Y left, Z up) to World coordinate frame (X right, Y forward, Z up)
-def X_W_R(robot_pose_world: np.ndarray) -> np.ndarray:
-    R = R_2d(np.deg2rad(90)) @ robot_pose_world[:2, :2]
-    X_R_W = np.eye(3)
-    X_R_W[:2, :2] = R
-    X_R_W[:2, 2] = robot_pose_world[:2, 3]
-    return X_R_W
+def pose_camera_to_world(pose_camera: np.ndarray) -> np.ndarray:
+    """
+    Convert a 4x4 homogeneous transformation matrix representing the robot's pose in the camera frame
+    to the world frame.
+    """
+
+    return np.linalg.inv(X_C_W) @ pose_camera
+
+def pose_world_to_grid(pose_world: np.ndarray, grid: OccupancyGrid) -> np.ndarray:
+    """
+    Convert a 4x4 homogeneous transformation matrix representing the robot's pose in the world frame
+    to a pose in the grid frame.
+    """
+
+    # First, we convert the world pose to a 2D pose (ignoring Z and roll/pitch)
+    pose_world_2d = np.eye(3)
+    pose_world_2d[:2, :2] = pose_world[:2, :2]
+    pose_world_2d[:2, 2] = pose_world[:2, 3]
+
+    return X_G_W_2d(grid.map_size_cells) @ pose_world_2d 
+
+def points_world_to_grid(points_world: np.ndarray, cell_size: float, map_size_cells: int) -> np.ndarray:
+    """
+    Convert world coordinates (x, y) in meters to grid coordinates (cx, cy) in cells.
+    """
+
+    # Convert to homogeneous coordinates
+    points = np.column_stack([points_world[:, :2], np.ones(len(points_world))])
     
-
-# Grid coordinate frame (X right, Y down) to World frame (X right, Y up) in meters
-def X_W_G(map_size_cells: int, cell_size: float) -> np.ndarray:
-    return np.array(
-        [
-            [1, 0, -int(map_size_cells/2) * cell_size],
-            [0, -1, int(map_size_cells/2) * cell_size],
-            [0, 0, 1]
-        ],
-        dtype=float,
-    )
-
-# World coordinate frame (X right, Y up) to Grid frame (X right, Y down) in cells
-def X_G_W(map_size_cells: int) -> np.ndarray:
-    return np.array(
-        [
-            [1, 0, int(map_size_cells/2)],
-            [0, -1, int(map_size_cells/2)],
-            [0, 0, 1]
-        ],
-        dtype=float,
-    )
+    # Apply transformation matrix X_G_W_2d
+    transform = X_G_W_2d(map_size_cells)
+    transformed = (transform @ points.T).T
+    
+    # Return only x and y coordinates (non-homogeneous)
+    return transformed[:, :2]
 
 def save_spatial_map_to_npz(spatial_map: ZedSpatialMap, filepath: str):
     data_dict = {}
@@ -113,69 +156,56 @@ def load_occupancy_grid(filepath: str) -> OccupancyGrid:
     return OccupancyGrid(map_size, cell_size, grid_data)
 
 
-
-def world_to_occupancy_grid(points_world: np.ndarray):
+def world_to_occupancy_grid(points_world: np.ndarray) -> OccupancyGrid:
     # 1. Mark all cells as UNKNOWN by default (Gray background)
     grid_img = np.full((MAP_SIZE_CELLS, MAP_SIZE_CELLS, 3), 128, dtype=np.uint8)
 
-    if points_world.shape[0] > 0:
-        
-        # Map horizontal axes (X and Y) to pixel coordinates
-        # X maps to the image horizontal axis, Y maps to the image vertical axis (depth)
-        px_all = ((MAP_SIZE_CELLS / 2) + (points_world[:, 0] / CELL_SIZE)).astype(int)
-        py_all = ((MAP_SIZE_CELLS / 2) - (points_world[:, 1] / CELL_SIZE)).astype(int)
+    if points_world.shape[0] == 0:
+        return OccupancyGrid(MAP_SIZE_METERS, CELL_SIZE, grid_img)
 
-        px_all, py_all = coordinate_world_to_grid(points_world[:, 0], points_world[:, 1], CELL_SIZE, MAP_SIZE_CELLS)
+    # 2. Convert world coordinates to grid coordinates
+    points_grid = points_world_to_grid(points_world, CELL_SIZE, MAP_SIZE_CELLS)
+    px_all = points_grid[:, 0].astype(int)
+    py_all = points_grid[:, 1].astype(int)
+    z_all = points_world[:, 2]
 
-        # Filter out points that fall outside the 2D image boundaries
-        valid_bounds = (px_all >= 0) & (px_all < MAP_SIZE_CELLS) & (py_all >= 0) & (py_all < MAP_SIZE_CELLS)
-        
-        px_valid = px_all[valid_bounds]
-        py_valid = py_all[valid_bounds]
-        z_valid = points_world[valid_bounds, 2]  # Extract corresponding Z (Height) values
+    # 3. Filter points within grid bounds
+    valid_bounds = (px_all >= 0) & (px_all < MAP_SIZE_CELLS) & (py_all >= 0) & (py_all < MAP_SIZE_CELLS)
+    px_valid = px_all[valid_bounds]
+    py_valid = py_all[valid_bounds]
+    z_valid = z_all[valid_bounds]
 
-        if z_valid.shape[0] > 0:
-            # Define the height thresholds for a Z-UP coordinate system
-            # Assuming camera is at Z=0 and ground is at Z = -CAMERA_HEIGHT
-            # (If your world frame already puts ground at Z=0, change these to around 0)
-            z_min_ground = -CAMERA_HEIGHT - 0.25
-            z_max_ground = -CAMERA_HEIGHT + 0.25
-            z_max_obstacle = 0.5 # Upper limit for obstacles (0.5m above camera)
+    if z_valid.shape[0] == 0:
+        return OccupancyGrid(MAP_SIZE_METERS, CELL_SIZE, grid_img)
 
-            # Filter points to only consider the vertical range of interest.
-            # (In Z-up, higher values mean higher physical height)
-            valid_height = (z_valid > z_min_ground) & (z_valid <= z_max_obstacle)
-            
-            px_valid = px_valid[valid_height]
-            py_valid = py_valid[valid_height]
-            z_valid = z_valid[valid_height]
+    # 4. Filter points by height
+    z_min_ground = -CAMERA_HEIGHT - 0.25
+    z_max_ground = -CAMERA_HEIGHT + 0.25
+    z_max_obstacle = 0.5
+    
+    valid_height = (z_valid > z_min_ground) & (z_valid <= z_max_obstacle)
+    px_valid = px_valid[valid_height]
+    py_valid = py_valid[valid_height]
+    z_valid = z_valid[valid_height]
 
-            if z_valid.shape[0] > 0:
-                # 2. Create boolean grids to track cell status
-                has_any_point = np.zeros((MAP_SIZE_CELLS, MAP_SIZE_CELLS), dtype=bool)
-                has_remaining_point = np.zeros((MAP_SIZE_CELLS, MAP_SIZE_CELLS), dtype=bool)
+    if z_valid.shape[0] == 0:
+        return OccupancyGrid(MAP_SIZE_METERS, CELL_SIZE, grid_img)
 
-                # Mark pixels that contain AT LEAST ONE valid point (Ground OR Obstacle)
-                has_any_point[py_valid, px_valid] = True
-                
-                # 3. Filter the ground points to identify the "remaining" points
-                # (Anything above the ground threshold is a remaining obstacle point)
-                is_remaining = (z_valid > z_max_ground)
-                
-                # Mark pixels that contain at least one remaining (non-ground) point
-                has_remaining_point[py_valid[is_remaining], px_valid[is_remaining]] = True
+    # 5. Create boolean grids for cell status
+    has_any_point = np.zeros((MAP_SIZE_CELLS, MAP_SIZE_CELLS), dtype=bool)
+    has_remaining_point = np.zeros((MAP_SIZE_CELLS, MAP_SIZE_CELLS), dtype=bool)
 
-                # 4. Apply the new logic:
-                # - Free: The cell had points, but NO points left after filtering ground
-                is_free = has_any_point & ~has_remaining_point
-                
-                # - Occupied: The cell still has points remaining after filtering ground
-                is_occupied = has_remaining_point
+    has_any_point[py_valid, px_valid] = True
+    
+    is_remaining = (z_valid > z_max_ground)
+    has_remaining_point[py_valid[is_remaining], px_valid[is_remaining]] = True
 
-                # 5. Draw the pixels on the grid
-                grid_img[is_free] = (255, 255, 255)  # White for free cells
-                grid_img[is_occupied] = (0, 0, 0)    # Black for occupied cells
-                # (Cells where has_any_point is False simply remain Gray/Unknown)
+    # 6. Mark free and occupied cells
+    is_free = has_any_point & ~has_remaining_point
+    is_occupied = has_remaining_point
+
+    grid_img[is_free] = (255, 255, 255)      # White for free cells
+    grid_img[is_occupied] = (0, 0, 0)        # Black for occupied cells
 
     return OccupancyGrid(MAP_SIZE_METERS, CELL_SIZE, grid_img)
 
@@ -211,59 +241,7 @@ def draw_robot_pose_on_grid(pose_world: np.ndarray, grid_img: np.ndarray, cell_s
     # Draw Robot Heading (Green Line)
     cv2.line(grid_img, (r_px, r_py), (f_px, f_py), (0, 255, 0), 1)
 
-def points_camera_to_world(points_camera: np.ndarray) -> np.ndarray:
-    """
-    Convert points from camera frame (X right, Y down, Z forward)
-    to World frame (X right, Y forward, Z up).
-    """
-    assert points_camera.shape[1] == 3
-    points_world = (X_W_C[:3, :3] @ points_camera.T).T  
-    return points_world
 
-def pose_camera_to_world(pose_camera: np.ndarray) -> np.ndarray:
-    assert pose_camera.shape == (4, 4)
-    pose_world = X_W_C @ pose_camera
-    return pose_world
-
-def pose_world_to_grid(pose_world: np.ndarray, grid: OccupancyGrid) -> tuple[int, int, float]:
-    """
-    Convert a 4x4 homogeneous transformation matrix representing the robot's pose in the world frame
-    to grid coordinates (cell_x, cell_y) and heading (theta).
-    """
-    robot_x = pose_world[0, 3]
-    robot_y = pose_world[1, 3]
-    cell_x, cell_y = coordinate_world_to_grid(robot_x, robot_y, grid.cell_size, grid.map_size_cells)
-    
-    # Extract rotation and compute heading
-    R = pose_world[:3, :3]
-    heading = -(theta_xy(R) + np.pi/2) % (2 * np.pi)  # Adjust if needed based on how your robot's forward direction maps to the grid
-
-    return cell_x, cell_y, heading
-
-def coordinate_world_to_grid(x: float | np.ndarray, y: float | np.ndarray, cell_size: float, map_size_cells: int) -> tuple[float | np.ndarray, float | np.ndarray]:
-    """
-    Converts 3D world coordinates (X, Y) to 2D image coordinates (col, row).
-
-    Supports both scalar inputs and NumPy arrays.
-
-    We map +Y to "Up" on the screen and +X to "Right".
-    """
-
-    x_arr = np.asarray(x)
-    y_arr = np.asarray(y)
-
-    cx = (map_size_cells / 2) + (x_arr / cell_size)
-    cy = (map_size_cells / 2) - (y_arr / cell_size)
-
-    # Convert to integer grid indices
-    cx = cx.astype(int)
-    cy = cy.astype(int)
-
-    # If inputs were scalars, return scalars
-    if np.isscalar(x) and np.isscalar(y):
-        return int(cx), int(cy)
-
-    return cx, cy
 
 if __name__ == "__main__":
     robot_pose_world = np.array([
