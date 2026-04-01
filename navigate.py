@@ -114,13 +114,16 @@ class MobiNavigator:
                     direction += waypoints_coordinates_Rw[i + j] - p
                     count += 1
             
-            direction /= count
+            if count > 0:
+                direction /= count
+                
+                # Convert direction → rotation matrix
+                theta = normalize_angle(np.arctan2(direction[1], direction[0]))
 
-            # Convert direction → rotation matrix
-            theta = normalize_angle(np.arctan2(direction[1], direction[0]))
-
-            if len(waypoints_poses) > 0 and abs(theta - R_to_angle(waypoints_poses[-1][:2, :2])) < np.radians(10):
-                theta = R_to_angle(waypoints_poses[-1][:2, :2]) 
+                if len(waypoints_poses) > 0 and abs(theta - R_to_angle(waypoints_poses[-1][:2, :2])) < np.radians(10):
+                    theta = R_to_angle(waypoints_poses[-1][:2, :2]) 
+            else:
+                theta = R_to_angle(waypoints_poses[-1][:2, :2])
 
             R = angle_to_R(theta)
             waypoint_pose[:2, :2] = R
@@ -157,11 +160,11 @@ class MobiNavigator:
             for i, wp in enumerate(self.waypoints):
                 logger.info(f"Waypoint {i}: coordinate: {wp[:2, 2]}, heading: {np.degrees(R_to_angle(wp[:2, :2])):.1f} deg")
 
-        # # Start the background control loop if it hasn't been started yet
-        # if self._nav_thread is None or not self._nav_thread.is_alive():
-        #     self._stop_event.clear()
-        #     self._nav_thread = threading.Thread(target=self.navigate, args=(), daemon=True)
-        #     self._nav_thread.start()
+        # Start the background control loop if it hasn't been started yet
+        if self._nav_thread is None or not self._nav_thread.is_alive():
+            self._stop_event.clear()
+            self._nav_thread = threading.Thread(target=self.navigate, args=(), daemon=True)
+            self._nav_thread.start()
 
     def navigate(self):
         prev_cmd = (0.0, 0.0, 0.0)
