@@ -17,6 +17,6 @@ class OccupancyGrid:
         
         free_spaces = np.all(self.grid == (255, 255, 255), axis=2)
 
-        distances = distance_transform_edt(free_spaces)
+        distances = np.array(distance_transform_edt(free_spaces)) * self.cell_size
         risk_map = np.exp(-(distances ** 2) / (2 * sigma ** 2))
         return risk_map

@@ -1,23 +1,24 @@
 import numpy as np
 import heapq
 import numpy as np
+from typing import Optional
 
 class RiskAStar:
-    def __init__(self, risk_map, threshold=0.7, risk_weight=5.0, step_size=1.0):
+    def __init__(self, risk_map, threshold=0.4, risk_weight=10.0, step_size=1.0):
         self.risk_map = risk_map
         self.threshold = threshold
         self.risk_weight = risk_weight
         self.step_size = step_size
 
-    def plan(self, current_pose, goal_pose):
-        start = np.array(current_pose, dtype=float)
-        goal = np.array(goal_pose, dtype=float)
+    def plan(self, robot_coordinates_grid: np.ndarray, goal_coordinates_grid: np.ndarray) -> np.ndarray:
+        start = np.array(robot_coordinates_grid, dtype=float)
+        goal = np.array(goal_coordinates_grid, dtype=float)
 
         print("Planning path from", start, "to", goal)
 
         raw_path = self._astar(start, goal)
         if raw_path is None or len(raw_path) < 2:
-            return[]
+            return np.array([])  # No path found or trivial path
 
         # Return the FULL resampled path for the hybrid tracker
         # waypoints = resample_path(raw_path, step_size=self.step_size)

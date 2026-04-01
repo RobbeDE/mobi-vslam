@@ -1,8 +1,8 @@
 from airo_camera_toolkit.cameras.zed.zed import Zed
 import cv2
-import numpy as np
 import rerun as rr
-from utils import pose_camera_to_world, save_spatial_map_to_npz, world_to_occupancy_grid, draw_occupancy_grid, points_camera_to_world
+from utils import save_spatial_map_to_npz, world_to_occupancy_grid, draw_occupancy_grid
+from transformations import *
 from constants import *
 
 
@@ -62,8 +62,8 @@ if __name__ == "__main__":
             # Visualize images using OpenCV
             cv2.imshow("RGB Image", image_bgr)
 
-            points_world = points_camera_to_world(spatial_map.full_pointcloud.points)
-            pose_world = pose_camera_to_world(pose_matrix)
+            points_world = points_Cw_to_Rw(spatial_map.full_pointcloud.points)
+            pose_world = pose_Cw_to_Rw(pose_matrix)
             print(f"Translation pose (world): {pose_world[:3, 3]}")
 
             occupancy_grid = world_to_occupancy_grid(points_world)

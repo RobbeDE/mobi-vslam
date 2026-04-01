@@ -1,7 +1,7 @@
 import cv2
 from utils import load_occupancy_grid, save_occupancy_grid
 
-ORIGINAL_FILE_NAME = "occupancy_grids/occupancy_grid15.npz"  # The .npz file containing the saved spatial map data
+ORIGINAL_FILE_NAME = "occupancy_grids/edited_occupancy_grid15.npz"  # The .npz file containing the saved spatial map data
 EDITED_FILE_NAME = "occupancy_grids/edited_occupancy_grid15.npz"  # The occupancy grid file to save after editing
 BRUSH_SIZE = 1              # Set to 2 or 3 if you want a wider brush when painting
 

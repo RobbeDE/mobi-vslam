@@ -37,7 +37,8 @@ if __name__ == "__main__":
             # Visualize images using OpenCV
             cv2.imshow("RGB Image", image_bgr)
 
-            pose_world = pose_camera_to_world(pose_matrix)
+            pose_world = pose_Cw_to_Rw(pose_matrix)
+            print(pose_world)
             print(f"Translation pose (world): {pose_world[:3, 3]}")
             draw_occupancy_grid("Occupancy Grid", occupancy_grid, pose_world)
 
