@@ -4,8 +4,8 @@ from constants import *
 from utils import *
 
 # --- CONFIGURATION ---
-AREA_FILE = "area_files/test13.area"
-OCCUPANCY_GRID_FILE = "occupancy_grids/occupancy_grid13.npz"
+AREA_FILE = "area_files/test15.area"
+OCCUPANCY_GRID_FILE = "occupancy_grids/edited_occupancy_grid15.npz"
 
 
 if __name__ == "__main__":
@@ -22,7 +22,6 @@ if __name__ == "__main__":
         serial_number=31733653
     ) as zed:
         
-        print("Starting real-time 2D occupancy grid mapping...")
         print("Press 'q' in the OpenCV window to exit.")
 
         cv2.namedWindow("RGB Image", cv2.WINDOW_NORMAL)

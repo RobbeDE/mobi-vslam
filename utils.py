@@ -70,7 +70,7 @@ def world_to_occupancy_grid(points_world: np.ndarray) -> OccupancyGrid:
         return OccupancyGrid(MAP_SIZE_METERS, CELL_SIZE, grid_img)
 
     # 2. Convert world coordinates to grid coordinates
-    points_grid = points_robot_world_to_grid(points_world, CELL_SIZE, MAP_SIZE_CELLS)
+    points_grid = points_Rw_2d_to_G(points_world, CELL_SIZE, MAP_SIZE_CELLS)
     px_all = points_grid[:, 0].astype(int)
     py_all = points_grid[:, 1].astype(int)
     z_all = points_world[:, 2]
