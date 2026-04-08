@@ -1,3 +1,5 @@
+import threading
+
 import numpy as np
 from scipy.ndimage import distance_transform_edt
 
@@ -20,3 +22,49 @@ class OccupancyGrid:
         distances = np.array(distance_transform_edt(free_spaces)) * self.cell_size
         risk_map = np.exp(-(distances ** 2) / (2 * sigma ** 2))
         return risk_map
+    
+# ZeroMQ subscriber to receive radar tracks.
+class TrackBuffer:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.latest = None
+
+    def update(self, data):
+        with self.lock:
+            self.latest = data
+
+    def get(self):
+        with self.lock:
+            return self.latest
+
+class KalmanTrackProxy:
+    def __init__(self, track_dict: dict):
+        self.track_dict = track_dict
+
+    @property
+    def id(self):
+        return self.track_dict['id']
+
+    @property
+    def x(self):
+        return self.track_dict['x']
+
+    @property
+    def P(self):
+        return self.track_dict['P']
+    
+    @property
+    def confidence(self):
+        return self.track_dict['confidence']
+    
+    @property
+    def age(self):
+        return self.track_dict['age']
+    
+    @property
+    def avg_speed_var(self):
+        return self.track_dict['avg_speed_var']
+    
+    @property
+    def type(self):
+        return self.track_dict['type']

@@ -4,20 +4,8 @@ import cv2
 from constants import *
 from utils import *
 import zmq
+from datatypes import KalmanTrackProxy, TrackBuffer
 
-# ZeroMQ subscriber to receive radar tracks.
-class TrackBuffer:
-    def __init__(self):
-        self.lock = threading.Lock()
-        self.latest = None
-
-    def update(self, data):
-        with self.lock:
-            self.latest = data
-
-    def get(self):
-        with self.lock:
-            return self.latest
         
 def receiver_thread(buffer: TrackBuffer):
     context = zmq.Context()
@@ -26,28 +14,14 @@ def receiver_thread(buffer: TrackBuffer):
     socket.setsockopt_string(zmq.SUBSCRIBE, "")
 
     while True:
-        msg = socket.recv_pyobj()  # blocking, OK here
-        buffer.update(msg)
+        track_dicts = socket.recv_pyobj()  # blocking, OK here
+        track_proxies = [KalmanTrackProxy(track_dict) for track_dict in track_dicts]
+        buffer.update(track_proxies)
 
-def filter_robot_track(tracks, robot_pose_world):
-    """Return tuple of (filtered_tracks, robot_track) where robot_track is the track closest to the robot's pose."""
-    filtered_tracks = []
-    robot_track = None
-    for track in tracks:
-        track_pos = np.array(track['x'][:2])  # Assuming track['x'] is [x, y, z]
-        robot_pos = robot_pose_world[:2, 3]  # Extract x, y from pose
-        distance = np.linalg.norm(track_pos - robot_pos)
-        if distance < 0.3:  # Threshold for considering a track as the robot's track
-            robot_track = track
-        else:
-            filtered_tracks.append(track)
-    return filtered_tracks, robot_track
 
 # --- CONFIGURATION ---
 AREA_FILE = "area_files/test15.area"
 OCCUPANCY_GRID_FILE = "occupancy_grids/edited_occupancy_grid15.npz"
-
-
 
 
 if __name__ == "__main__":
@@ -87,18 +61,16 @@ if __name__ == "__main__":
             cv2.imshow("RGB Image", image_bgr)
 
             pose_world = pose_Cw_to_Rw(pose_matrix)
-            print(f"Translation pose (world): {pose_world[:3, 3]}")
-            draw_occupancy_grid("Occupancy Grid", occupancy_grid, pose_world)
-
             tracks = buffer.get()
+            
+            draw_occupancy_grid("Occupancy Grid", occupancy_grid, pose_world, tracks)
+            
             if tracks is not None:
                 print(f"Received {len(tracks)} radar tracks")
                 human_tracks, robot_track = filter_robot_track(tracks, pose_world)
                 if robot_track is not None:
-                    print(f"Identified robot track at position: {robot_track['x'][:2]}")
-                for track in human_tracks:
-                    track_pos = track['x'][:2]
-                    print(f"Human track at position: {track_pos}")
+                    print(f"Translation pose (world): {pose_world[:3, 3]}")
+                    print(f"Identified robot track at position: {robot_track.x[:2]}")
 
             key = cv2.waitKey(10)
 

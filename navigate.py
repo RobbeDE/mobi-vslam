@@ -1,21 +1,24 @@
 import threading
+import numpy as np
+from loguru import logger
+from datatypes import KalmanTrackProxy, TrackBuffer
+from airo_camera_toolkit.cameras.zed.zed import Zed
+import cv2
+from constants import *
+from utils import *
+import zmq
 import time
 import numpy as np
 from loguru import logger
 from airo_robots.drives.hardware.kelo_robile import KELORobile
 from RiskAStar import RiskAStar
 from datatypes import OccupancyGrid
-from airo_camera_toolkit.cameras.zed.zed import Zed
-import cv2
 from constants import *
 from utils import *
 
 robot_pose_world = np.eye(4)  # 4x4 homogeneous transformation matrix
 robot_pose_lock = threading.Lock()  # to protect access to robot_pose across threads
 
-# --- CONFIGURATION ---
-AREA_FILE = "area_files/test15.area"
-OCCUPANCY_GRID_FILE = "occupancy_grids/edited_occupancy_grid15.npz"
 
 class MobiNavigator:
     MAX_LIN_SPEED = 0.2      # m/s (tune)
@@ -25,15 +28,18 @@ class MobiNavigator:
     DRIVE_LOOP_PERIOD = 1.0 / DRIVE_LOOP_HZ
     GOAL_TOLERANCE = 0.2     # meters
 
-    def __init__(self, occupancy_grid: OccupancyGrid):
+    def __init__(self, occupancy_grid: OccupancyGrid, track_buffer: TrackBuffer):
         self.kelo = None
         self.occupancy_grid = occupancy_grid
+        self.track_buffer = track_buffer
 
         self._nav_thread = None
         self._stop_event = threading.Event()
 
         self.current_goal_pose_Rw = None
         self.goal_pose_lock = threading.Lock()
+
+        self.frozen = True # Start in frozen state until first goal is set
 
         self.waypoints =[]
         self.current_waypoint_index = 0
@@ -64,21 +70,6 @@ class MobiNavigator:
 
             v_R = error_linear_R / distance * self.MAX_LIN_SPEED if distance > 0 else np.zeros(2)
             w_R = np.clip(error_angular_R, -self.MAX_ANG_SPEED, self.MAX_ANG_SPEED)
-
-            # # Calculate linear error
-            # error_Rw_linear = goal_pose_Rw_2d[:2, 2] - robot_pose_Rw_2d[:2, 2]
-            # distance = np.linalg.norm(error_Rw_linear)
-
-            # # Calculate angular error
-            # robot_angle_Rw = R_to_angle(robot_pose_Rw_2d[:2, :2])
-            # goal_angle_Rw = R_to_angle(goal_pose_Rw_2d[:2, :2])
-            # error_Rw_angular = (goal_angle_Rw - robot_angle_Rw + np.pi) % (2 * np.pi) - np.pi  # Normalize to [-pi, pi]
-            
-            # # Calculate linear and angular velocity
-            # v_Rw = (error_Rw_linear / distance) * self.MAX_LIN_SPEED
-            # v_R = vector_Rw_2d_to_R_2d(v_Rw, robot_pose_Rw_2d)
-            # logger.info(f"Raw velocity command before clipping: vx={v_R[0]:.2f} m/s, vy={v_R[1]:.2f} m/s, wz={np.degrees(error_Rw_angular):.1f} deg/s")
-            # w_R = np.clip(error_Rw_angular, -self.MAX_ANG_SPEED, self.MAX_ANG_SPEED)
 
             logger.info(f"Robot pose: {robot_pose_Rw_2d}")
             logger.info(f"Goal pose: {goal_pose_Rw_2d}")
@@ -166,6 +157,16 @@ class MobiNavigator:
             self._nav_thread = threading.Thread(target=self.navigate, args=(), daemon=True)
             self._nav_thread.start()
 
+    def wait_until_clear(self):
+        logger.info("Waiting for vicinity to clear...")
+        while True:
+            human_tracks = self.track_buffer.get()
+            if human_tracks is not None:
+                if all(not is_in_vicinity(track, robot_pose_world[:2, 3]) for track in human_tracks):
+                    logger.info("Vicinity is clear. Resuming navigation.")
+                    return
+            time.sleep(0.5)
+
     def navigate(self):
         prev_cmd = (0.0, 0.0, 0.0)
         self.current_waypoint_index = 0
@@ -178,6 +179,17 @@ class MobiNavigator:
 
             with robot_pose_lock:
                 robot_pose_Rw_2d = pose_to_xy_plane(robot_pose_world)
+
+            tracks = self.track_buffer.get()
+            if tracks is not None:
+                human_tracks, robot_track = filter_robot_track(tracks, robot_pose_world)
+
+                for track in human_tracks:
+                    if is_in_vicinity(track, robot_pose_Rw_2d[:2, 2]):
+                        logger.warning(f"Human track {track.id} is in the vicinity! Freezing navigation.")
+                        self.frozen = True
+                        self.wait_until_clear()
+                        continue  # After waiting, re-check tracks and re-compute command
 
             # Check if we've reached the current waypoint
             distance = np.linalg.norm(current_waypoint[:2,2] - robot_pose_Rw_2d[:2,2])
@@ -216,17 +228,26 @@ class MobiNavigator:
                 logger.warning(f"Kelo drive loop overload: cycle took {elapsed*1000:.1f} ms")
 
 
+# --- CONFIGURATION ---
+AREA_FILE = "area_files/test15.area"
+OCCUPANCY_GRID_FILE = "occupancy_grids/edited_occupancy_grid15.npz"
+
+def radar_thread(buffer: TrackBuffer):
+    context = zmq.Context()
+    socket = context.socket(zmq.SUB)
+    socket.connect("tcp://localhost:5555")
+    socket.setsockopt_string(zmq.SUBSCRIBE, "")
+
+    while True:
+        track_dicts = socket.recv_pyobj()  # blocking, OK here
+        track_proxies = [KalmanTrackProxy(track_dict) for track_dict in track_dicts]
+        buffer.update(track_proxies)
+
+
 if __name__ == "__main__":
 
     occupancy_grid = load_occupancy_grid(OCCUPANCY_GRID_FILE)
 
-    # Initialize Navigator
-    navigator = MobiNavigator(occupancy_grid)
-    navigator.connect_to_kelo_safe()
-
-    tracking_params = Zed.TrackingParams(align_with_gravity=True, area_file_path = AREA_FILE, enable_localization_only=True)
-    runtime_params = Zed.RuntimeParams(confidence_threshold=30)
-    
     # risk_map = occupancy_grid.get_risk_map(sigma=0.4)
 
     # print(risk_map[250, 250])
@@ -258,6 +279,22 @@ if __name__ == "__main__":
                 else:
                     logger.error("Goal rejected: Cell is UNKNOWN.")
 
+    # Start the ZMQ receiver thread to get radar tracks
+    buffer = TrackBuffer()
+    threading.Thread(
+        target=radar_thread,
+        args=(buffer,),
+        daemon=True
+    ).start()
+
+    # Initialize Navigator
+    navigator = MobiNavigator(occupancy_grid, buffer)
+    navigator.connect_to_kelo_safe()
+
+    # Set up ZED camera parameters
+    tracking_params = Zed.TrackingParams(align_with_gravity=True, area_file_path = AREA_FILE, enable_localization_only=True)
+    runtime_params = Zed.RuntimeParams(confidence_threshold=30)
+
     with Zed(
         depth_mode=Zed.InitParams.NEURAL_DEPTH_MODE,
         camera_tracking_params=tracking_params,
@@ -265,10 +302,6 @@ if __name__ == "__main__":
         fps=60,
         serial_number=31733653
     ) as zed:
-        
-        print("Starting real-time 2D occupancy grid mapping...")
-        print("Press 'q' in the OpenCV window to exit.")
-
         cv2.namedWindow("RGB Image", cv2.WINDOW_NORMAL)
         cv2.namedWindow("Occupancy Grid", cv2.WINDOW_NORMAL)
         
@@ -287,9 +320,14 @@ if __name__ == "__main__":
             # Visualize images using OpenCV
             cv2.imshow("RGB Image", image_bgr)
 
+            
+            human_tracks = buffer.get()
+            if human_tracks is not None:
+                human_tracks, robot_track = filter_robot_track(human_tracks, robot_pose_world)
+
             # pose_world is a local copy for visualization
             pose_world = pose_Cw_to_Rw(pose_matrix)
-            draw_occupancy_grid("Occupancy Grid", occupancy_grid, pose_world)
+            draw_occupancy_grid("Occupancy Grid", occupancy_grid, pose_world, human_tracks)
 
             key = cv2.waitKey(10)
 

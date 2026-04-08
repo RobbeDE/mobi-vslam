@@ -115,11 +115,14 @@ def world_to_occupancy_grid(points_world: np.ndarray) -> OccupancyGrid:
 
     return OccupancyGrid(MAP_SIZE_METERS, CELL_SIZE, grid_img)
 
-def draw_occupancy_grid(window_name: str, occupancy_grid: OccupancyGrid, pose_world: Optional[np.ndarray] = None):
+def draw_occupancy_grid(window_name: str, occupancy_grid: OccupancyGrid, pose_world: Optional[np.ndarray] = None, tracks: Optional[list] = None):
     grid_img = occupancy_grid.grid.copy()
 
     if pose_world is not None:
         draw_robot_pose_on_grid(pose_world, grid_img, occupancy_grid)
+    if tracks is not None:
+        draw_kalman_tracks_on_grid(tracks, grid_img, occupancy_grid)
+
     cv2.imshow(window_name, grid_img)
     
 
@@ -138,6 +141,113 @@ def draw_robot_pose_on_grid(pose_Rw_3d: np.ndarray, grid_img: np.ndarray, occupa
     # Draw Robot Heading (Green Line)
     cv2.line(grid_img, (int(robot_x), int(robot_y)), (int(forward_grid[0]), int(forward_grid[1])), (0, 255, 0), 1)
 
+def draw_kalman_tracks_on_grid(tracks, grid_img, occupancy_grid) -> None:
+    for t in tracks:
+        x = t.x[0]
+        y = t.x[1]
+
+        gx, gy = points_Rw_2d_to_G(
+            np.array([x, y]),
+            occupancy_grid.cell_size,
+            occupancy_grid.map_size_cells
+        )
+
+        # center point
+        cv2.circle(grid_img, (int(gx), int(gy)), 3, (255, 0, 0), -1)
+
+        # covariance ellipse
+        draw_covariance_ellipse(
+            grid_img,
+            x, y,
+            t.P[:2, :2],   # IMPORTANT: use position covariance only
+            occupancy_grid,
+            n_sigma=2,
+            color=(0, 165, 255),
+            thickness=1
+        )
+
+def draw_covariance_ellipse(
+    grid_img,
+    mean_x,
+    mean_y,
+    P,
+    occupancy_grid,
+    n_sigma=1,
+    color=(0, 0, 255),
+    thickness=1
+):
+    eigvals, eigvecs = np.linalg.eigh(P)
+
+    order = eigvals.argsort()[::-1]
+    eigvals = eigvals[order]
+    eigvecs = eigvecs[:, order]
+
+    angle = np.arctan2(eigvecs[1, 0], eigvecs[0, 0])
+
+    # 2D ellipse axes
+    width  = 2 * n_sigma * np.sqrt(eigvals[0])
+    height = 2 * n_sigma * np.sqrt(eigvals[1])
+
+    theta = np.linspace(0, 2 * np.pi, 100)
+
+    ellipse = np.array([
+        (width / 2) * np.cos(theta),
+        (height / 2) * np.sin(theta)
+    ])
+
+    R = np.array([
+        [np.cos(angle), -np.sin(angle)],
+        [np.sin(angle),  np.cos(angle)]
+    ])
+
+    rotated = R @ ellipse
+
+    x_world = rotated[0, :] + mean_x
+    y_world = rotated[1, :] + mean_y
+
+    # world -> grid (vectorized)
+    pts = np.stack([x_world, y_world], axis=1)
+    pts_grid = np.array([
+        points_Rw_2d_to_G(p, occupancy_grid.cell_size, occupancy_grid.map_size_cells)
+        for p in pts
+    ])
+
+    pts_grid = pts_grid.astype(np.int32)
+
+    cv2.polylines(grid_img, [pts_grid], isClosed=True, color=color, thickness=thickness)
+
+
+# ---- RADAR -----
+
+def filter_robot_track(tracks, robot_pose_world):
+    """Return tuple of (filtered_tracks, robot_track) where robot_track is the track closest to the robot's pose."""
+    filtered_tracks = []
+    robot_track = None
+    for track in tracks:
+        track_pos = np.array(track.x[:2])  # Assuming track.x is [x, y, z]
+        robot_pos = robot_pose_world[:2, 3]  # Extract x, y from pose
+        distance = np.linalg.norm(track_pos - robot_pos)
+        if distance < 0.5 or track.id == "robot":  # Threshold for considering a track as the robot's track
+            robot_track = track
+        else:
+            filtered_tracks.append(track)
+    return filtered_tracks, robot_track
+
+def is_in_vicinity(track, robot_pos,
+                   base_radius=1.0,
+                   k=2.0,
+                   max_inflation=1.0):
+
+    mu = track.x[:2]
+    sigma_max = np.sqrt(np.max(np.linalg.eigvals(track.P[:2, :2])))
+
+    d = np.linalg.norm(robot_pos - mu)
+
+    inflation = min(k * sigma_max, max_inflation)
+
+    print("inflation: ", inflation)
+
+    return d < (base_radius + inflation)
 
 
 if __name__ == "__main__":
