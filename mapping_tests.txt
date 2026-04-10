@@ -1,0 +1,33 @@
+GEN 1
+test 1 & 2: only align with gravity = True
+test3: enable_2d_ground_mode=True -> plane at -0.8, then plane at -1.3 with small patch of ground where points are missing, apparently small step ??
+test 4: enable_2d_ground_mode=True -> plane starts from -1.4 but then gradually comes down to like -1.1. However, z-coordinate of pose also changes, so mapping works fine but the positional tracking drifts  in the z-direction... Map gradually shifts
+
+GEN 3
+
+test 5: with new bottom zed camera and updated sdk (3.12) and align with gravity + 2D ground localization mode. Still vertical drift 
+
+test 6,7,8: bottom zed camera, 2 times hence and forth, drift in hallways and stuff, not accurate at all
+
+test 9: top camera, 2 times hence and forth, drift in hallways
+
+test 10: bottom camera,  back and forth but only untill francis office with extra visual landmarks
+
+test 11: mobi lab mapped
+
+localization test 5: initializing the whole time, does not find it, I think it misses visual landmarks
+
+localization test 10: map is found in beginning but gets lost sometimes.
+
+localization test 11: map is found in beginning but lost sometimes
+
+map 14: in mobi lab with gen 3, confidende threshold 30, 2D ground mode disabled
+localization 14: in the beginning kwown map but after a bit lost for the remaining time
+
+GEN 1
+
+map 13: in mobi lab with gen 1, confidence thershold 30 and 2D ground mode disabled
+localization 13: works perfectly
+
+map 15: in hallway with gen 1, confidende threshold 30 and 2D ground mode disabled
+localization 15: really good
