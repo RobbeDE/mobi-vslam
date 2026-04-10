@@ -248,19 +248,7 @@ if __name__ == "__main__":
 
     occupancy_grid = load_occupancy_grid(OCCUPANCY_GRID_FILE)
 
-    # risk_map = occupancy_grid.get_risk_map(sigma=0.4)
-
-    # print(risk_map[250, 250])
-
-
-    # vis = cv2.normalize(risk_map, None, 0, 255, cv2.NORM_MINMAX)
-    # vis = vis.astype(np.uint8)
-
-    # # color_vis = cv2.applyColorMap(vis, cv2.COLORMAP_JET)
-
-    # cv2.imshow("Risk Map", vis)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+    risk_map = occupancy_grid.get_risk_map(sigma=0.4)
 
     # Mouse Callback for clicking on the grid
     def on_mouse_click(event, x, y, flags, param):
